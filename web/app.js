@@ -218,6 +218,7 @@ function paint() {
     onclick: () => document.getElementById("sheet-" + page.number)?.scrollIntoView({ behavior: "smooth", block: "start" }),
   }, ["Лист " + (index + 1)]));
   if (!doc.pages.length) sheetPane.append(h("p", { class: "empty" }, ["Листов нет. Добавьте шаблон листа."]));
+  doc.pages.forEach((page) => syncRegions(page));
   doc.pages.forEach((page) => sheetPane.append(sheetPage(doc, page)));
   const jump = state.scrollSheet;
   const sectionJump = state.scrollSection;
@@ -519,6 +520,7 @@ async function applyQr(doc, entries, href) {
     figure.href = href;
     figure.src = result.src;
     syncSheetImage(page, previous, result.src);
+    replaceSheetImage(page, previous, result.src);
   });
   scheduleSave();
 }
@@ -1081,6 +1083,16 @@ function replaceLoose(text, previous, next) {
   return copy.join("\n");
 }
 
+function replaceSheetImage(page, previous, next) {
+  const sheet = document.getElementById("sheet-" + page.number);
+  if (!sheet || !previous || previous === next) return;
+  const needle = previous.split("/").pop();
+  sheet.querySelectorAll("img").forEach((img) => {
+    const src = img.getAttribute("src") || "";
+    if (src.includes(needle)) img.src = media(state.doc, next);
+  });
+}
+
 function syncSheetImage(page, previous, next) {
   if (!page || !previous || previous === next) return;
   (page.layout || []).forEach((block) => {
@@ -1404,7 +1416,7 @@ function sheetHead(doc, page) {
   const right = h("div", { class: "head-right" });
   if (slots.name >= 0) right.append(h("p", { class: "sheet-docname", "data-bind": "meta-" + slots.name }, [doc.meta[slots.name]]));
   const figure = heroFigure(page);
-  const wide = figure && figure.w > page.width * 0.55;
+  const wide = figure && figure.w > page.width * 0.62;
   if (!wide) right.append(h("i", { class: "sheet-rule" }));
   if (figure && !wide) right.append(heroFrame(doc, page, figure, false));
   head.append(left, right);
@@ -1576,7 +1588,8 @@ function sheetColumns(page) {
       ? section.column
       : region && region.x >= cut - 6 ? "right" : "left";
     const bucket = side === "right" ? right : left;
-    bucket.push({ section, y: region ? region.y : 100000 + index });
+    const stored = Number(section.y);
+    bucket.push({ section, y: Number.isFinite(stored) ? stored : (region ? region.y : 100000 + index) });
   });
   left.sort((a, b) => a.y - b.y);
   right.sort((a, b) => a.y - b.y);

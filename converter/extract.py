@@ -75,7 +75,7 @@ def convert_pdf(pdf_path: Path, out_dir: Path) -> dict:
         pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
         pix.save(out_dir / image_name, jpg_quality=quality)
 
-        figures, page_logo = _save_figures(doc, model["images"], out_dir, index)
+        figures, page_logo = _save_figures(doc, model["images"], out_dir, index, page.rect)
         if page_logo and not logo:
             logo = page_logo
         if not title:
@@ -214,7 +214,7 @@ def _read_page(page) -> dict:
     return {"blocks": blocks, "images": images, "links": links}
 
 
-def _save_figures(doc, images, out_dir: Path, page_index: int):
+def _save_figures(doc, images, out_dir: Path, page_index: int, page_rect):
     figures = []
     logo = None
     seen = set()
@@ -225,6 +225,8 @@ def _save_figures(doc, images, out_dir: Path, page_index: int):
             continue
         seen.add(xref)
         x0, y0, x1, y1 = info["bbox"]
+        x0, y0 = max(x0, page_rect.x0), max(y0, page_rect.y0)
+        x1, y1 = min(x1, page_rect.x1), min(y1, page_rect.y1)
         width = x1 - x0
         height = y1 - y0
         if width < 8 or height < 8:
@@ -259,6 +261,8 @@ def _save_figures(doc, images, out_dir: Path, page_index: int):
         if href:
             figure["role"] = "qr"
             figure["href"] = href
+        elif x0 < 40 and width < 55:
+            continue
         figures.append(figure)
     figures.sort(key=lambda item: (item["y"], item["x"]))
     return figures, logo
@@ -270,11 +274,11 @@ def _save_nav(page, out_dir: Path) -> dict:
     for drawing in page.get_drawings():
         rect = drawing["rect"]
         fill = drawing.get("fill")
-        if not fill or rect.x0 > 2 or not 30 <= rect.width <= 90:
+        if not fill or rect.x0 > 30 or not 24 <= rect.width <= 90:
             continue
         if fill[0] > 0.25 or fill[1] < 0.4 or fill[2] < 0.55:
             continue
-        if rect.y0 < 5 and rect.height > 120:
+        if rect.y0 < 40 and rect.height > 120:
             bar = (rect, fill)
         elif rect.y0 > page.rect.height - 120 and rect.height < 100:
             foot = rect
@@ -487,7 +491,10 @@ def _qr_href(path: Path, width: float, height: float) -> str:
         text, _kind = pymupdf.mupdf.fz_decode_barcode_from_pixmap2(pix.this, 0)
     except Exception:
         return ""
-    return str(text or "").strip()
+    text = str(text or "").strip()
+    if not text or text.lower() == "unknown" or "://" not in text and not text.startswith("www."):
+        return ""
+    return text
 
 
 def _match_src(figures, x, y):
@@ -525,7 +532,11 @@ def _title_and_subtitle(blocks, page_height):
     subtitle_lines = [
         line
         for line in lines
-        if line is not title_line and line.y0 >= title_line.y0 and line.size >= 12
+        if line is not title_line
+        and line.y0 >= title_line.y0
+        and line.y0 < title_line.y0 + 70
+        and line.size >= 12
+        and not line.text.startswith("ТУ")
     ]
     subtitle_lines.sort(key=lambda line: line.y0)
     return title_line.text, join_lines(subtitle_lines)
@@ -559,7 +570,7 @@ def _is_title_line(block):
 
 def _flow(blocks, page_width, page_height, title, subtitle, page_number):
     body = []
-    for block in blocks:
+    for block in _prepare_blocks(blocks):
         if block.kind != "text":
             continue
         if block.y0 > page_height - 58 and block.x1 < page_width * 0.62:
@@ -582,7 +593,8 @@ def _flow(blocks, page_width, page_height, title, subtitle, page_number):
     lead = []
     sections = []
     order = 0
-    for column in columns:
+    for column_index, column in enumerate(columns):
+        side = "left" if column_index == 0 else "right"
         if not column:
             continue
         regions, consumed = _tables(column)
@@ -610,6 +622,7 @@ def _flow(blocks, page_width, page_height, title, subtitle, page_number):
                     "title": item["text"],
                     "y": item["y"],
                     "x": item["x"],
+                    "column": side,
                     "blocks": [],
                 }
                 sections.append(current)
@@ -618,7 +631,7 @@ def _flow(blocks, page_width, page_height, title, subtitle, page_number):
                 if current is None:
                     lead.append(payload)
                 else:
-                    current["blocks"].append(payload)
+                    _append_block(current["blocks"], payload)
 
     cleaned = []
     for section in _order_sections(sections):
@@ -627,6 +640,9 @@ def _flow(blocks, page_width, page_height, title, subtitle, page_number):
             {
                 "id": f"p{page_number}-s{order}",
                 "title": section["title"],
+                "column": section.get("column") or "left",
+                "x": round(section["x"], 1),
+                "y": round(section["y"], 1),
                 "blocks": section["blocks"],
             }
         )
@@ -647,6 +663,22 @@ def _order_sections(sections):
     return ordered
 
 
+def _append_block(blocks, payload):
+    text = (payload.get("text") or "").lstrip()
+    previous = blocks[-1] if blocks else None
+    if (
+        payload.get("type") == "paragraph"
+        and previous
+        and previous.get("type") == "list"
+        and previous.get("items")
+        and text
+        and (text[0].islower() or text[0] in "«\"(")
+    ):
+        previous["items"][-1] = (previous["items"][-1].rstrip() + " " + text).strip()
+        return
+    blocks.append(payload)
+
+
 def _expand(payload):
     if payload["type"] != "note":
         return [payload]
@@ -662,18 +694,75 @@ def _is_title_block(block, title):
     return any(line.text == title for line in block.lines)
 
 
-def _is_heading(block):
-    if len(block.lines) != 1:
-        return False
-    line = block.lines[0]
+def _prepare_blocks(blocks):
+    prepared = []
+    for block in _split_heading(blocks):
+        prepared.extend(_split_list(block))
+    return prepared
+
+
+def _split_heading(blocks):
+    result = []
+    for block in blocks:
+        lines = sorted(block.lines, key=lambda line: (line.y0, line.x0))
+        if block.kind != "text" or len(lines) < 2 or not _is_heading_line(lines[0]):
+            result.append(block)
+            continue
+        rest = lines[1:]
+        if any(_is_heading_line(line) for line in rest):
+            result.append(block)
+            continue
+        result.append(_block_from_lines([lines[0]]))
+        result.append(_block_from_lines(rest))
+    return result
+
+
+def _split_list(block):
+    if block.kind != "text":
+        return [block]
+    ordered = sorted(block.lines, key=lambda line: (line.y0, line.x0))
+    first = next((index for index, line in enumerate(ordered) if _bullet_body(line) is not None), None)
+    if first in (None, 0):
+        return [block]
+    return [_block_from_lines(ordered[:first]), _block_from_lines(ordered[first:])]
+
+
+def _block_from_lines(lines):
+    return Block(
+        "text",
+        min(line.x0 for line in lines),
+        min(line.y0 for line in lines),
+        max(line.x1 for line in lines),
+        max(line.y1 for line in lines),
+        lines,
+    )
+
+
+def _is_heading_line(line):
     text = line.text.strip()
-    if not line.bold or line.size < 9.6 or line.size >= 14:
+    if not line.bold or line.size < 9.6 or line.size > 15.2:
         return False
-    if len(text) < 2 or len(text) > 52:
+    if len(text) < 2 or len(text) > 52 or text.endswith(".") or text.startswith("ТУ"):
         return False
-    if text.endswith(".") or text.startswith("ТУ"):
+    if text[:1] in "•·●–-":
         return False
-    return True
+    letters = [char for char in text if char.isalpha()]
+    return len(letters) >= 3 and all(char.isupper() for char in letters)
+
+
+def _is_heading(block):
+    return len(block.lines) == 1 and _is_heading_line(block.lines[0])
+
+
+def _bullet_body(line):
+    text = line.text.strip()
+    if not text:
+        return None
+    if text[0] in "•·●":
+        return text[1:].strip()
+    if text in {"–", "-"} and (line.x1 - line.x0) < 18:
+        return ""
+    return None
 
 
 def _paragraph_kind(text):
@@ -685,17 +774,21 @@ def _paragraph_kind(text):
 
 
 def _list_items(lines):
-    if not any(line.text.strip() in BULLETS for line in lines):
+    ordered = sorted(lines, key=lambda item: (item.y0, item.x0))
+    if not any(_bullet_body(line) is not None for line in ordered):
         return None
     items = []
     current = []
-    for line in sorted(lines, key=lambda item: (item.y0, item.x0)):
-        if line.text.strip() in BULLETS and (line.x1 - line.x0) < 18:
-            if current:
-                items.append(join_lines(current))
-            current = []
+    for line in ordered:
+        body = _bullet_body(line)
+        if body is None:
+            current.append(line)
             continue
-        current.append(line)
+        if current:
+            items.append(join_lines(current))
+        current = []
+        if body:
+            current.append(Line(line.x0, line.y0, line.x1, line.y1, body, line.size, line.bold, line.color))
     if current:
         items.append(join_lines(current))
     items = [item for item in items if item]
