@@ -196,6 +196,7 @@ function paint() {
   const nav = document.querySelector("#nav");
   const main = document.querySelector("#main");
   if (!nav || !main) return;
+  applyDocFonts(doc);
   nav.replaceChildren();
   main.replaceChildren();
   main.classList.toggle("is-split", !!doc.textAvailable);
@@ -269,8 +270,10 @@ function paint() {
       }
     }
     if (!state.query || leadMatches(page, state.query)) {
-      page.lead.forEach((block, index) => textPane.append(editableBlock(page.lead, index, page)));
-      textPane.append(addBar(page.lead));
+      if (index > 0) {
+        page.lead.forEach((block, leadIndex) => textPane.append(editableBlock(page.lead, leadIndex, page)));
+        textPane.append(addBar(page.lead));
+      }
     }
     page.sections.forEach((section) => {
       if (!sectionMatches(section, state.query)) return;
@@ -356,28 +359,33 @@ function templateQr(doc) {
 function hero(doc) {
   const node = h("header", { class: "hero" });
   const page = doc.pages[0];
-  if (doc.logo) node.append(figureFrame(doc, { src: doc.logo }, "logo", (src) => {
+  const rail = navBlock(doc, page);
+  if (rail) node.append(rail);
+  node.append(headBlock(doc, page));
+  return node;
+}
+
+function headBlock(doc, page) {
+  const block = h("section", { class: "head-block" });
+  if (doc.logo) block.append(figureFrame(doc, { src: doc.logo }, "logo", (src) => {
     const previous = doc.logo;
     doc.logo = src;
     doc.pages.forEach((item) => syncSheetImage(item, previous, src));
   }));
-  else node.append(h("button", {
+  else block.append(h("button", {
     class: "text-btn",
     type: "button",
     onclick: () => pickImage((src) => { doc.logo = src; paint(); scheduleSave(); }),
   }, ["Добавить логотип"]));
-  if (doc.labels.length) node.append(kickerRow(doc, page));
-  qrEntries(doc).forEach((entries) => node.append(qrField(doc, entries)));
-  node.append(editable("h2", null, () => doc.title, (value) => {
+  block.append(editable("h2", null, () => doc.title, (value) => {
     doc.title = value;
     const heading = document.querySelector(".appbar h1");
     if (heading) heading.textContent = value || doc.sourceName;
   }, null, null, page, null, null, "title", "head"));
-  node.append(editable("p", "subtitle", () => doc.subtitle, (value) => { doc.subtitle = value; }, "Подзаголовок", null, page, null, null, "subtitle", "head"));
-  const meta = h("div", { class: "meta" });
-  doc.meta.forEach((item, index) => meta.append(editable(
+  block.append(editable("p", "subtitle", () => doc.subtitle, (value) => { doc.subtitle = value; }, "Подзаголовок", null, page, null, null, "subtitle", "head"));
+  metaOrder(doc).forEach((index) => block.append(editable(
     "span",
-    null,
+    "meta-line",
     () => doc.meta[index],
     (value) => { doc.meta[index] = value; },
     "Поле",
@@ -388,15 +396,39 @@ function hero(doc) {
     "meta-" + index,
     "head",
   )));
-  meta.append(h("span", null, [doc.sourceName]));
-  node.append(meta);
-  const first = doc.pages[0];
-  if (first) {
-    first.figures.forEach((figure) => {
-      if (!isQr(figure)) node.append(figureFrame(doc, figure, null, null, first));
+  if (page) {
+    (page.figures || []).forEach((figure) => {
+      if (!isQr(figure)) block.append(figureFrame(doc, figure, null, null, page));
     });
+    if (!state.query || leadMatches(page, state.query)) {
+      page.lead.forEach((item, index) => block.append(editableBlock(page.lead, index, page)));
+      block.append(addBar(page.lead));
+    }
   }
-  return node;
+  return block;
+}
+
+function metaOrder(doc) {
+  const items = doc.meta || [];
+  const tu = items.findIndex((item) => /^\s*ТУ(?:\s|$)/.test(item || ""));
+  const name = items.findIndex((item) => /техническ/i.test(item || ""));
+  const order = [];
+  if (tu >= 0) order.push(tu);
+  if (name >= 0 && name !== tu) order.push(name);
+  items.forEach((_, index) => {
+    if (!order.includes(index)) order.push(index);
+  });
+  return order;
+}
+
+function navBlock(doc, page) {
+  const labels = doc.labels || [];
+  const codes = qrEntries(doc);
+  if (!labels.length && !codes.length) return null;
+  const block = h("section", { class: "nav-block" });
+  if (labels.length) block.append(kickerRow(doc, page));
+  codes.forEach((entries) => block.append(qrField(doc, entries)));
+  return block;
 }
 
 function kickerRow(doc, page) {
@@ -470,10 +502,11 @@ function qrEntries(doc) {
 }
 
 function qrField(doc, entries) {
+  const figure = entries[0] && entries[0].figure;
   const input = h("input", {
     type: "url",
     placeholder: "https://",
-    value: entries[0].figure.href || "",
+    value: figure ? figure.href || "" : "",
     spellcheck: "false",
   });
   const commit = () => {
@@ -488,10 +521,12 @@ function qrField(doc, entries) {
     commit();
   });
   input.addEventListener("blur", commit);
-  return h("label", { class: "qr-field" }, [
+  const field = h("label", { class: "qr-field" + (figure && figure.src ? " has-preview" : "") }, [
+    figure && figure.src ? h("img", { class: "qr-preview", src: media(doc, figure.src), alt: "QR" }) : null,
     h("span", null, ["Ссылка для QR"]),
     input,
   ]);
+  return field;
 }
 
 async function applyQr(doc, entries, href) {
@@ -1400,6 +1435,8 @@ function sheetNav(doc, page, navW, navBar, navQr) {
 
 function sheetBody(doc, page, navW) {
   const body = h("div", { class: "sheet-body" });
+  const family = docFontFamily(doc);
+  if (family) body.style.fontFamily = `"${family}", Arial, "Helvetica Neue", sans-serif`;
   body.append(sheetHead(doc, page), sheetMain(doc, page, navW), sheetFoot(doc));
   return body;
 }
@@ -1409,7 +1446,7 @@ function sheetHead(doc, page) {
   const left = h("div", { class: "head-left" });
   if (doc.logo) left.append(logoFrame(doc, page));
   left.append(h("h2", { class: "sheet-title", "data-bind": "title" }, [doc.title || ""]));
-  left.append(h("p", { class: "sheet-sub", "data-bind": "subtitle" }, [doc.subtitle || ""]));
+  left.append(h("p", { class: "sheet-sub", "data-bind": "subtitle" }, [page.subtitle || doc.subtitle || ""]));
   const slots = metaSlots(doc);
   if (slots.tu >= 0) left.append(h("p", { class: "sheet-tu", "data-bind": "meta-" + slots.tu }, [doc.meta[slots.tu]]));
   page.lead.forEach((block, index) => left.append(renderLead(page, block, index)));
@@ -1420,7 +1457,10 @@ function sheetHead(doc, page) {
   if (!wide) right.append(h("i", { class: "sheet-rule" }));
   if (figure && !wide) right.append(heroFrame(doc, page, figure, false));
   head.append(left, right);
-  if (figure && wide) head.append(heroFrame(doc, page, figure, true));
+  if (figure && wide) {
+    head.classList.add("is-banner");
+    head.append(heroFrame(doc, page, figure, true));
+  }
   return head;
 }
 
@@ -1511,7 +1551,7 @@ function resizeRatio(event, page, frame, corner, limits, apply) {
 
 function metaSlots(doc) {
   const items = doc.meta || [];
-  const tu = items.findIndex((item) => /^\s*ТУ\b/.test(item || ""));
+  const tu = items.findIndex((item) => /^\s*ТУ(?:\s|$)/.test(item || ""));
   let name = items.findIndex((item) => /техническ/i.test(item || ""));
   if (name < 0) name = items.findIndex((_, index) => index !== tu);
   return { tu, name };
@@ -1626,11 +1666,8 @@ function renderSheetBlock(doc, section, block, index) {
 
 function sheetTable(section, index, table) {
   const key = section.id + "-" + index;
-  const count = (table.headers || []).length;
-  const widths = count === 2 ? ["46%", "54%"]
-    : count === 3 ? ["54%", "24%", "22%"]
-    : count === 4 ? ["28%", "24%", "24%", "24%"]
-    : [];
+  const widths = columnWidths(table);
+  const cols = widths.map((width) => h("col", { style: "width:" + width.toFixed(2) + "%" }));
   const head = h("tr", null, (table.headers || []).map((header, column) => h("th", {
     "data-bind": `th-${key}-${column}`,
   }, [header])));
@@ -1640,11 +1677,100 @@ function sheetTable(section, index, table) {
       "data-bind": `td-${key}-${rowIndex}-${column}`,
     }, [cell]))));
   });
-  return h("table", null, [
-    widths.length ? h("colgroup", null, widths.map((width) => h("col", { style: "width:" + width }))) : null,
+  const tableNode = h("table", null, [
+    h("colgroup", null, cols),
     h("thead", null, [head]),
     body,
   ]);
+  const frame = h("div", { class: "sheet-table-frame" });
+  frame.append(tableNode);
+  const grips = [];
+  for (let column = 0; column < widths.length - 1; column += 1) {
+    const grip = h("i", { class: "col-grip", title: "Ширина столбца" });
+    grip.addEventListener("pointerdown", (event) => resizeColumn(event, table, cols, grips, column));
+    grips.push(grip);
+    frame.append(grip);
+  }
+  placeColumnGrips(grips, widths);
+  return frame;
+}
+
+function columnWidths(table) {
+  const headers = table.headers || [];
+  const stored = table.widths;
+  if (Array.isArray(stored) && stored.length === headers.length && stored.every((value) => value > 0)) {
+    const sum = stored.reduce((total, value) => total + value, 0);
+    return stored.map((value) => (value / sum) * 100);
+  }
+  const weights = headers.map((header, index) => {
+    const samples = [header, ...(table.rows || []).map((row) => row[index] || "")];
+    let longest = 3;
+    samples.forEach((sample) => {
+      String(sample).split(/\s+/).forEach((word) => {
+        if (word.length > longest) longest = word.length;
+      });
+    });
+    return longest;
+  });
+  const sum = weights.reduce((total, value) => total + value, 0) || 1;
+  return weights.map((weight) => (weight / sum) * 100);
+}
+
+function placeColumnGrips(grips, widths) {
+  let at = 0;
+  widths.forEach((width, index) => {
+    at += width;
+    if (grips[index]) grips[index].style.left = at + "%";
+  });
+}
+
+function resizeColumn(event, table, cols, grips, index) {
+  const frame = event.currentTarget.parentElement;
+  const width = frame.getBoundingClientRect().width || 1;
+  const start = columnWidths(table);
+  const pair = start[index] + start[index + 1];
+  const origin = event.clientX;
+  event.currentTarget.classList.add("is-on");
+  trackPointer(event, (ev) => {
+    const next = start.slice();
+    const left = clamp(start[index] + ((ev.clientX - origin) / width) * 100, 8, pair - 8);
+    next[index] = left;
+    next[index + 1] = pair - left;
+    table.widths = next;
+    next.forEach((value, column) => {
+      cols[column].style.width = value.toFixed(2) + "%";
+    });
+    placeColumnGrips(grips, next);
+  }, () => {
+    event.currentTarget.classList.remove("is-on");
+    scheduleSave();
+  });
+}
+
+function docFontFamily(doc) {
+  const font = (doc.fonts || []).find((item) => item.family);
+  if (!font) return "";
+  return String(font.family).replace(/[^\w -]/g, "");
+}
+
+function applyDocFonts(doc) {
+  const fonts = doc.fonts || [];
+  let style = document.getElementById("doc-fonts");
+  if (!fonts.length) {
+    if (style) style.remove();
+    return;
+  }
+  if (!style) {
+    style = document.createElement("style");
+    style.id = "doc-fonts";
+    document.head.append(style);
+  }
+  style.textContent = fonts.map((font) => {
+    const family = String(font.family || "").replace(/[^\w -]/g, "");
+    if (!family || !font.src) return "";
+    const weight = Number(font.weight) || 400;
+    return `@font-face{font-family:"${family}";font-style:normal;font-weight:${weight};font-display:swap;src:url("${media(doc, font.src)}") format("truetype");}`;
+  }).join("");
 }
 
 function sheetFoot(doc) {

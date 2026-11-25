@@ -78,8 +78,11 @@ def convert_pdf(pdf_path: Path, out_dir: Path) -> dict:
         figures, page_logo = _save_figures(doc, model["images"], out_dir, index, page.rect)
         if page_logo and not logo:
             logo = page_logo
-        if not title:
-            title, subtitle = _title_and_subtitle(model["blocks"], page.rect.height)
+        page_title, page_subtitle, page_subtitle_lines = _title_and_subtitle(
+            model["blocks"], page.rect.height
+        )
+        if not title and page_title:
+            title, subtitle = page_title, page_subtitle
         page_meta, page_labels, footer = _chrome(model, page.rect.height)
         for item in page_meta:
             if item not in meta:
@@ -110,12 +113,14 @@ def convert_pdf(pdf_path: Path, out_dir: Path) -> dict:
                 "links": model["links"],
                 "figures": figures,
                 "lead": lead,
+                "subtitle": page_subtitle_lines if "\n" in page_subtitle_lines else "",
                 "sections": sections,
                 "layout": _layout(page, model, figures, logo, index + 1),
                 "erasers": [],
             }
         )
 
+    fonts = _save_fonts(doc, out_dir)
     doc.close()
     text_chars = _count_text(pages)
     text_available = text_chars > 80
@@ -143,6 +148,8 @@ def convert_pdf(pdf_path: Path, out_dir: Path) -> dict:
     for key in ("navBrand", "navWidth", "navBar", "navQr"):
         if nav.get(key):
             document[key] = nav[key]
+    if fonts:
+        document["fonts"] = fonts
     (out_dir / "document.json").write_text(
         json.dumps(document, ensure_ascii=False),
         encoding="utf-8",
@@ -231,25 +238,21 @@ def _save_figures(doc, images, out_dir: Path, page_index: int, page_rect):
         height = y1 - y0
         if width < 8 or height < 8:
             continue
-        try:
-            extracted = doc.extract_image(xref)
-        except Exception:
-            continue
-        ext = extracted.get("ext") or "png"
-        if ext == "jpeg":
-            ext = "jpg"
         is_logo = y0 < 80 and 40 < width < 180 and height < 55
         is_icon = max(width, height) < 36 and not is_logo
         if is_icon:
             continue
         order += 1
         if is_logo and logo is None:
-            name = f"images/logo.{ext}"
-            (out_dir / name).write_bytes(extracted["image"])
-            logo = name
+            saved = _save_xref(doc, xref, out_dir / "images" / "logo.png")
+            if saved is None:
+                continue
+            logo = saved.relative_to(out_dir).as_posix()
             continue
-        name = f"images/p{page_index + 1}-{order}.{ext}"
-        (out_dir / name).write_bytes(extracted["image"])
+        saved = _save_xref(doc, xref, out_dir / "images" / f"p{page_index + 1}-{order}.png")
+        if saved is None:
+            continue
+        name = saved.relative_to(out_dir).as_posix()
         figure = {
             "src": name,
             "x": round(x0, 1),
@@ -324,17 +327,11 @@ def _collect_icons(doc, page, images, out_dir: Path, page_index: int):
         if min(width, height) < 8 or max(width, height) >= 36:
             continue
         seen.add(xref)
-        try:
-            extracted = doc.extract_image(xref)
-        except Exception:
-            continue
-        ext = extracted.get("ext") or "png"
-        if ext == "jpeg":
-            ext = "jpg"
         order += 1
-        name = f"images/p{page_index + 1}-icon-{order}.{ext}"
-        (out_dir / name).write_bytes(extracted["image"])
-        icons.append({"src": name, "x": x0, "y": y0})
+        saved = _save_xref(doc, xref, out_dir / "images" / f"p{page_index + 1}-icon-{order}.png")
+        if saved is None:
+            continue
+        icons.append({"src": saved.relative_to(out_dir).as_posix(), "x": x0, "y": y0})
     for drawing in page.get_drawings():
         rect = drawing["rect"]
         fill = drawing.get("fill")
@@ -517,6 +514,75 @@ def _hex_color(value):
     return f"#{int(value or 0) & 0xFFFFFF:06x}"
 
 
+def _save_xref(doc, xref, dest: Path):
+    """Write an embedded image. A soft mask is applied, so a logo is not left on black."""
+    try:
+        extracted = doc.extract_image(xref)
+    except Exception:
+        return None
+    smask = extracted.get("smask") or 0
+    if not smask:
+        ext = extracted.get("ext") or "png"
+        if ext == "jpeg":
+            ext = "jpg"
+        dest = dest.with_suffix("." + ext)
+        dest.write_bytes(extracted["image"])
+        return dest
+    base = pymupdf.Pixmap(doc, xref)
+    if base.alpha:
+        base = pymupdf.Pixmap(base, 0)
+    if base.n > 3:
+        base = pymupdf.Pixmap(pymupdf.csRGB, base)
+    mask = pymupdf.Pixmap(doc, smask)
+    pix = pymupdf.Pixmap(base, mask)
+    dest = dest.with_suffix(".png")
+    pix.save(dest)
+    return dest
+
+
+def _save_fonts(doc, out_dir: Path) -> list:
+    chosen = {}
+    for page in doc:
+        for item in page.get_fonts(full=True):
+            xref, ext, kind, base = item[0], item[1], item[2], item[3]
+            if ext not in {"ttf", "otf"} or not base:
+                continue
+            family, weight = _font_face(base)
+            if not family or family.lower().startswith("arial"):
+                continue
+            score = 2 if kind == "Type0" else 1
+            key = (family, weight)
+            previous = chosen.get(key)
+            if previous is None or score > previous[0]:
+                chosen[key] = (score, xref)
+    if not chosen:
+        return []
+    (out_dir / "fonts").mkdir(exist_ok=True)
+    fonts = []
+    for (family, weight), (_score, xref) in sorted(chosen.items()):
+        try:
+            _name, ext, _subtype, buf = doc.extract_font(xref)
+        except Exception:
+            continue
+        if not buf:
+            continue
+        src = f"fonts/{family}-{weight}.{ext or 'ttf'}"
+        (out_dir / src).write_bytes(buf)
+        fonts.append({"family": family, "weight": weight, "src": src})
+    return fonts
+
+
+def _font_face(base: str):
+    name = base.split("+")[-1]
+    weight = 400
+    if name.endswith("-Bold"):
+        name = name[: -len("-Bold")]
+        weight = 700
+    elif name.endswith("-Regular"):
+        name = name[: -len("-Regular")]
+    return name, weight
+
+
 def _title_and_subtitle(blocks, page_height):
     lines = [
         line
@@ -527,7 +593,7 @@ def _title_and_subtitle(blocks, page_height):
     ]
     titles = [line for line in lines if line.bold and line.size >= 16]
     if not titles:
-        return "", ""
+        return "", "", ""
     title_line = max(titles, key=lambda line: (line.size, -line.y0))
     subtitle_lines = [
         line
@@ -538,8 +604,9 @@ def _title_and_subtitle(blocks, page_height):
         and line.size >= 12
         and not line.text.startswith("ТУ")
     ]
-    subtitle_lines.sort(key=lambda line: line.y0)
-    return title_line.text, join_lines(subtitle_lines)
+    subtitle_lines.sort(key=lambda line: (line.y0, line.x0))
+    display = "\n".join(line.text.strip() for line in subtitle_lines if line.text.strip())
+    return title_line.text, join_lines(subtitle_lines), display
 
 
 def _chrome(model, page_height):
@@ -1005,7 +1072,7 @@ def _contacts(footers):
         if piece:
             disclaimer = disclaimer.replace(piece, " ")
     disclaimer = re.sub(r"\s+", " ", disclaimer).strip(" .")
-    site_label = re.sub(r"^(?:https?://)?(?:www\.)?", "", site).strip("/")
+    site_label = re.sub(r"^https?://", "", site).strip("/")
     return {
         "phone": phone,
         "phoneHref": _tel(phone) if phone else "",
@@ -1066,8 +1133,13 @@ def join_lines(lines):
         text = line.text.strip()
         if not text:
             continue
-        if parts and parts[-1].endswith("-") and re.search(r"[0-9A-Za-zА-Яа-яЁё]$", parts[-1][:-1]):
-            parts[-1] = parts[-1][:-1] + text
+        stem = parts[-1][:-1] if parts and parts[-1].endswith("-") else ""
+        if stem and re.search(r"[0-9A-Za-zА-Яа-яЁё]$", stem):
+            # «стекло-» на конце строки — перенос. «декоративно-» и «санитарно-» — дефис слова.
+            if re.search(r"(?:но|ски)$", stem, re.IGNORECASE):
+                parts[-1] = stem + "-" + text
+            else:
+                parts[-1] = stem + text
         else:
             parts.append(text)
     return re.sub(r"\s+", " ", " ".join(parts)).strip()

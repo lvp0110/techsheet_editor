@@ -202,7 +202,17 @@ class App(BaseHTTPRequestHandler):
         if not str(target).startswith(str(root)) or not target.is_file():
             self.send_error(404)
             return
-        kind = "image/jpeg" if target.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
+        suffix = target.suffix.lower()
+        if suffix in {".jpg", ".jpeg"}:
+            kind = "image/jpeg"
+        elif suffix == ".webp":
+            kind = "image/webp"
+        elif suffix == ".ttf":
+            kind = "font/ttf"
+        elif suffix == ".otf":
+            kind = "font/otf"
+        else:
+            kind = "image/png"
         self._file(target, kind)
 
     def _file(self, path: Path, content_type: str):
