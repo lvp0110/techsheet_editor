@@ -145,12 +145,12 @@ a { color: var(--accent-dark); }
 }
 .layout {
   display: grid;
-  grid-template-columns: 70px minmax(0, 1fr);
+  grid-template-columns: 170px minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
 #nav {
-  width: 70px;
+  width: 170px;
   background: var(--sidebar);
   color: white;
   padding: 10px 4px 24px;
@@ -827,7 +827,7 @@ mark { background: #ffe08a; color: inherit; padding: 0 2px; border-radius: 3px; 
 .miss { color: var(--muted); padding: 12px 0 20px; }
 
 @media (max-width: 860px) {
-  .layout { grid-template-columns: 70px minmax(0, 1fr); }
+  .layout { grid-template-columns: 170px minmax(0, 1fr); }
   .main.is-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .hero h2 { font-size: 28px; }
   .appbar { flex-wrap: wrap; }
