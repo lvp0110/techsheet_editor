@@ -283,8 +283,7 @@ function paint() {
   if (state.query && !visible && !textPane.querySelector(".card")) {
     textPane.append(h("p", { class: "miss" }, ["Ничего не найдено."]));
   }
-  const contacts = contactBar(doc.contacts);
-  if (contacts) textPane.append(contacts);
+  textPane.append(footBlock(doc));
   watchSections();
   const focus = document.querySelector("[data-focus='1']");
   if (focus) focus.focus();
@@ -1358,7 +1357,9 @@ function highlightSheet(mark) {
     ? "#pane-sheet .sheet-head"
     : mark === "nav"
       ? "#pane-sheet .sheet-nav"
-      : `#pane-sheet [data-section="${CSS.escape(mark)}"]`;
+      : mark === "foot"
+        ? "#pane-sheet .sheet-foot"
+        : `#pane-sheet [data-section="${CSS.escape(mark)}"]`;
   document.querySelectorAll(selector).forEach((node) => node.classList.add("is-on"));
 }
 
@@ -1775,25 +1776,37 @@ function applyDocFonts(doc) {
 
 function sheetFoot(doc) {
   const contacts = doc.contacts || {};
-  let disclaimer = contacts.disclaimer || "";
-  const mark = "Техническая поддержка";
-  if (disclaimer.includes(mark)) disclaimer = disclaimer.replace(mark, " ").replace(/\s+/g, " ").trim();
+  const view = footView(contacts);
   const foot = h("footer", { class: "sheet-foot" });
-  if (disclaimer) foot.append(h("p", null, [disclaimer]));
-  const support = h("p");
-  support.append(mark);
-  if (contacts.phone) {
-    support.append(" ");
-    support.append(h("a", { href: contacts.phoneHref || "tel:" }, [contacts.phone]));
-  }
+  foot.append(h("p", {
+    "data-bind": "foot-disclaimer",
+    class: view.disclaimer ? "" : "is-empty",
+  }, [view.disclaimer]));
+  const support = h("p", { class: "sheet-support" });
+  support.append(h("span", {
+    "data-bind": "foot-support",
+    class: view.support ? "" : "is-empty",
+  }, [view.support]));
+  support.append(h("a", {
+    "data-bind": "foot-phone",
+    class: view.phone ? "" : "is-empty",
+    href: contacts.phoneHref || phoneHref(view.phone) || "tel:",
+  }, [view.phone]));
   foot.append(support);
   const links = h("p", { class: "sheet-links" });
-  if (contacts.email) links.append(h("a", { href: "mailto:" + contacts.email }, [contacts.email]));
-  if (contacts.site) {
-    if (links.childNodes.length) links.append(" ");
-    links.append(h("a", { href: contacts.siteHref || "#", target: "_blank", rel: "noopener" }, [contacts.site]));
-  }
-  if (links.childNodes.length) foot.append(links);
+  links.append(h("a", {
+    "data-bind": "foot-email",
+    class: view.email ? "" : "is-empty",
+    href: view.email ? "mailto:" + view.email : "mailto:",
+  }, [view.email]));
+  links.append(h("a", {
+    "data-bind": "foot-site",
+    class: view.site ? "" : "is-empty",
+    href: contacts.siteHref || siteHref(view.site) || "#",
+    target: "_blank",
+    rel: "noopener",
+  }, [view.site]));
+  foot.append(links);
   return foot;
 }
 
@@ -2111,16 +2124,92 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function contactBar(contacts) {
-  if (!contacts) return null;
-  const links = [];
-  if (contacts.phoneHref) links.push(h("a", { href: contacts.phoneHref }, [contacts.phone]));
-  if (contacts.email) links.push(h("a", { href: "mailto:" + contacts.email }, [contacts.email]));
-  if (contacts.siteHref) links.push(h("a", { href: contacts.siteHref, target: "_blank", rel: "noopener" }, [contacts.site]));
-  if (!links.length && !contacts.disclaimer) return null;
-  const node = h("footer", { class: "contacts" }, links);
-  if (contacts.disclaimer) node.append(h("p", null, [contacts.disclaimer]));
-  return node;
+function footBlock(doc) {
+  const contacts = doc.contacts || (doc.contacts = {});
+  const block = h("section", { class: "foot-block" });
+  block.append(footField("Примечание", () => footView(contacts).disclaimer, (value) => {
+    splitFoot(contacts);
+    contacts.disclaimer = value;
+    markFoot("foot-disclaimer", value);
+  }, "Текст в подвале", "foot-disclaimer"));
+  block.append(footField("Подпись", () => footView(contacts).support, (value) => {
+    splitFoot(contacts);
+    contacts.support = value;
+    markFoot("foot-support", value);
+  }, "Техническая поддержка", "foot-support"));
+  block.append(footField("Телефон", () => contacts.phone || "", (value) => {
+    contacts.phone = value;
+    contacts.phoneHref = phoneHref(value);
+    markFoot("foot-phone", value);
+    setFootHref("foot-phone", contacts.phoneHref || "tel:");
+  }, "8 (800) 000-00-00", "foot-phone"));
+  block.append(footField("Почта", () => contacts.email || "", (value) => {
+    contacts.email = value;
+    markFoot("foot-email", value);
+    setFootHref("foot-email", value ? "mailto:" + value : "mailto:");
+  }, "name@example.ru", "foot-email"));
+  block.append(footField("Сайт", () => contacts.site || "", (value) => {
+    contacts.site = value;
+    contacts.siteHref = siteHref(value);
+    markFoot("foot-site", value);
+    setFootHref("foot-site", contacts.siteHref || "#");
+  }, "www.example.ru", "foot-site"));
+  return block;
+}
+
+function footField(label, get, set, placeholder, bind) {
+  return h("label", { class: "foot-field" }, [
+    h("span", null, [label]),
+    editable("p", "foot-line", get, set, placeholder, null, null, [], null, bind, "foot"),
+  ]);
+}
+
+function footView(contacts) {
+  const support = contacts.support != null ? contacts.support : "Техническая поддержка";
+  let disclaimer = contacts.disclaimer || "";
+  if (contacts.support == null && support && disclaimer.includes(support)) {
+    disclaimer = disclaimer.replace(support, " ").replace(/\s+/g, " ").trim();
+  }
+  return {
+    disclaimer,
+    support,
+    phone: contacts.phone || "",
+    email: contacts.email || "",
+    site: contacts.site || "",
+  };
+}
+
+function splitFoot(contacts) {
+  if (contacts.support != null) return;
+  const mark = "Техническая поддержка";
+  const text = contacts.disclaimer || "";
+  if (text.includes(mark)) contacts.disclaimer = text.replace(mark, " ").replace(/\s+/g, " ").trim();
+  contacts.support = mark;
+}
+
+function phoneHref(phone) {
+  let digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("8")) digits = "7" + digits.slice(1);
+  return digits ? "tel:+" + digits : "";
+}
+
+function siteHref(site) {
+  const value = String(site || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return "https://" + value;
+}
+
+function markFoot(bind, value) {
+  document.querySelectorAll(`#pane-sheet [data-bind="${CSS.escape(bind)}"]`).forEach((node) => {
+    node.classList.toggle("is-empty", !String(value || "").trim());
+  });
+}
+
+function setFootHref(bind, href) {
+  document.querySelectorAll(`#pane-sheet [data-bind="${CSS.escape(bind)}"]`).forEach((node) => {
+    node.setAttribute("href", href);
+  });
 }
 
 function sectionMatches(section, query) {
