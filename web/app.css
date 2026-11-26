@@ -304,6 +304,7 @@ a { color: var(--accent-dark); }
   min-width: 26px;
   height: 26px;
   padding: 0 6px;
+  white-space: nowrap;
 }
 .move-block button.is-on {
   background: var(--accent-dark);

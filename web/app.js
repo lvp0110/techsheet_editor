@@ -592,6 +592,7 @@ function sectionCard(doc, section, page) {
   const head = h("div", { class: "card-head" });
   head.append(iconField(doc, section));
   head.append(title);
+  head.append(sectionColumnControl(page, section));
   const move = sectionMoveControl(page, section);
   if (move) head.append(move);
   card.append(head);
@@ -650,6 +651,29 @@ function iconField(doc, section) {
     }, [on ? "Выключить" : "Включить"]),
   ]));
   return field;
+}
+
+function sectionColumnControl(page, section) {
+  const side = sectionSide(page, section);
+  const row = h("div", { class: "move-block" });
+  [
+    ["left", "Левая", "Левая колонка"],
+    ["right", "Правая", "Правая колонка"],
+  ].forEach(([value, label, title]) => {
+    const current = side === value;
+    row.append(h("button", {
+      type: "button",
+      class: current ? "is-on" : "",
+      title: current ? title : "Перенести карточку в " + title.toLowerCase(),
+      onclick: () => {
+        if (current) return;
+        section.column = value;
+        paint();
+        scheduleSave();
+      },
+    }, [label]));
+  });
+  return row;
 }
 
 function sectionMoveControl(page, section) {
