@@ -380,29 +380,163 @@ function headBlock(doc, page) {
     if (heading) heading.textContent = value || doc.sourceName;
   }, null, null, page, null, null, "title", "head"));
   block.append(editable("p", "subtitle", () => doc.subtitle, (value) => { doc.subtitle = value; }, "Подзаголовок", null, page, null, null, "subtitle", "head"));
-  metaOrder(doc).forEach((index) => block.append(editable(
-    "span",
-    "meta-line",
-    () => doc.meta[index],
-    (value) => { doc.meta[index] = value; },
-    "Поле",
-    null,
-    page,
-    null,
-    null,
-    "meta-" + index,
-    "head",
-  )));
+  const order = metaOrder(doc);
+  const tuIndexes = order.filter((index) => isTu(doc.meta[index]));
+  tuIndexes.forEach((index, position) => block.append(tuField(doc, index, position === tuIndexes.length - 1)));
+  if (page && (!state.query || leadMatches(page, state.query))) {
+    page.lead.forEach((item, index) => block.append(editableBlock(page.lead, index, page)));
+    block.append(addBar(page.lead));
+  }
+  const tail = h("div", { class: "head-tail" });
+  order.filter((index) => !isTu(doc.meta[index])).forEach((index) => {
+    if (isDocName(doc.meta[index])) tail.append(docNameField(doc, index));
+    else block.append(editable(
+      "span",
+      "meta-line",
+      () => doc.meta[index],
+      (value) => { doc.meta[index] = value; },
+      "Поле",
+      null,
+      page,
+      null,
+      null,
+      "meta-" + index,
+      "head",
+    ));
+  });
   if (page) {
     (page.figures || []).forEach((figure) => {
-      if (!isQr(figure)) block.append(figureFrame(doc, figure, null, null, page));
+      if (!isQr(figure)) tail.append(figureFrame(doc, figure, null, null, page));
     });
-    if (!state.query || leadMatches(page, state.query)) {
-      page.lead.forEach((item, index) => block.append(editableBlock(page.lead, index, page)));
-      block.append(addBar(page.lead));
-    }
   }
+  if (tail.childElementCount) block.append(tail);
   return block;
+}
+
+function isTu(value) {
+  return /^\s*ТУ(?:\s|$)/.test(value || "");
+}
+
+function tuNumber(value) {
+  return String(value || "").replace(/^\s*ТУ\s*/, "").trim();
+}
+
+function tuLabel(number) {
+  const value = tuNumber(number);
+  return value ? "ТУ " + value : "ТУ";
+}
+
+function tuField(doc, index, showAdd) {
+  const row = h("div", { class: "tu-line" });
+  row.append(h("span", { class: "tu-prefix" }, ["ТУ"]));
+  const number = editable(
+    "span",
+    "meta-line tu-number",
+    () => tuNumber(doc.meta[index]),
+    (value) => {
+      doc.meta[index] = tuLabel(value);
+      reflectSheet("meta-" + index, tuNumber(value) ? doc.meta[index] : "");
+    },
+    "Номер",
+    null,
+    null,
+    [],
+    null,
+    null,
+    "head",
+  );
+  if (doc._focusTu === index) {
+    number.dataset.focus = "1";
+    delete doc._focusTu;
+  }
+  row.append(number);
+  const tus = (doc.meta || []).filter(isTu).length;
+  if (tus > 1) {
+    row.append(h("button", {
+      class: "text-btn",
+      type: "button",
+      title: "Удалить ТУ",
+      onclick: () => {
+        doc.meta.splice(index, 1);
+        paint();
+        scheduleSave();
+      },
+    }, ["×"]));
+  }
+  if (showAdd) {
+    row.append(h("button", {
+      class: "text-btn tu-add",
+      type: "button",
+      title: "Добавить ТУ",
+      onclick: () => addTu(doc),
+    }, ["+"]));
+  }
+  return row;
+}
+
+function addTu(doc) {
+  if (!doc.meta) doc.meta = [];
+  let at = doc.meta.length;
+  doc.meta.forEach((item, index) => {
+    if (isTu(item)) at = index + 1;
+  });
+  doc.meta.splice(at, 0, "ТУ");
+  doc._focusTu = at;
+  paint();
+  scheduleSave();
+}
+
+function isDocName(value) {
+  return /техническ/i.test(value || "");
+}
+
+function docNameParts(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  const match = text.match(/^Технический лист №\s*(.*?)\s*Версия от\s*(.*)$/i);
+  if (match) return { number: match[1].trim(), version: match[2].trim() };
+  const sheet = text.match(/^Технический лист №\s*(.*)$/i);
+  if (sheet) return { number: sheet[1].trim(), version: "" };
+  return { number: text, version: "" };
+}
+
+function docNameLabel(number, version) {
+  const num = String(number || "").replace(/\s+/g, " ").trim();
+  const ver = String(version || "").replace(/\s+/g, " ").trim();
+  return `Технический лист №${num ? " " + num : ""} Версия от${ver ? " " + ver : ""}`;
+}
+
+function docNameField(doc, index) {
+  const row = h("div", { class: "doc-line" });
+  const write = (number, version) => {
+    doc.meta[index] = docNameLabel(number, version);
+    reflectSheet("meta-" + index, doc.meta[index]);
+  };
+  row.append(docPart("Технический лист №", () => docNameParts(doc.meta[index]).number, (value) => {
+    write(value, docNameParts(doc.meta[index]).version);
+  }, "Номер", false));
+  row.append(docPart("Версия от", () => docNameParts(doc.meta[index]).version, (value) => {
+    write(docNameParts(doc.meta[index]).number, value);
+  }, "Дата", true));
+  return row;
+}
+
+function docPart(label, get, set, placeholder, wide) {
+  const part = h("span", { class: "doc-part" });
+  part.append(h("span", { class: "tu-prefix" }, [label]));
+  part.append(editable(
+    "span",
+    "meta-line doc-value" + (wide ? " is-wide" : ""),
+    get,
+    set,
+    placeholder,
+    null,
+    null,
+    [],
+    null,
+    null,
+    "head",
+  ));
+  return part;
 }
 
 function metaOrder(doc) {
@@ -1470,10 +1604,13 @@ function sheetHead(doc, page) {
   if (doc.logo) left.append(logoFrame(doc, page));
   left.append(h("h2", { class: "sheet-title", "data-bind": "title" }, [doc.title || ""]));
   left.append(h("p", { class: "sheet-sub", "data-bind": "subtitle" }, [page.subtitle || doc.subtitle || ""]));
-  const slots = metaSlots(doc);
-  if (slots.tu >= 0) left.append(h("p", { class: "sheet-tu", "data-bind": "meta-" + slots.tu }, [doc.meta[slots.tu]]));
+  (doc.meta || []).forEach((item, index) => {
+    if (!isTu(item)) return;
+    left.append(h("p", { class: "sheet-tu", "data-bind": "meta-" + index }, [tuNumber(item) ? tuLabel(item) : ""]));
+  });
   page.lead.forEach((block, index) => left.append(renderLead(page, block, index)));
   const right = h("div", { class: "head-right" });
+  const slots = metaSlots(doc);
   if (slots.name >= 0) right.append(h("p", { class: "sheet-docname", "data-bind": "meta-" + slots.name }, [doc.meta[slots.name]]));
   const figure = heroFigure(page);
   const wide = figure && figure.w > page.width * 0.62;
@@ -1574,10 +1711,9 @@ function resizeRatio(event, page, frame, corner, limits, apply) {
 
 function metaSlots(doc) {
   const items = doc.meta || [];
-  const tu = items.findIndex((item) => /^\s*ТУ(?:\s|$)/.test(item || ""));
   let name = items.findIndex((item) => /техническ/i.test(item || ""));
-  if (name < 0) name = items.findIndex((_, index) => index !== tu);
-  return { tu, name };
+  if (name < 0) name = items.findIndex((item) => !isTu(item));
+  return { name };
 }
 
 function heroFigure(page) {

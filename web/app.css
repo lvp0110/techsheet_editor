@@ -276,6 +276,10 @@ a { color: var(--accent-dark); }
   align-items: flex-start;
   gap: 4px;
   flex: 0 0 auto;
+  box-sizing: border-box;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
 }
 .icon-actions { display: flex; flex-direction: column; align-items: flex-start; }
 .icon-actions .text-btn { font-size: 12px; line-height: 1.3; }
@@ -344,6 +348,14 @@ a { color: var(--accent-dark); }
 }
 .head-block .logo-frame { margin-bottom: 12px; }
 .head-block .figure { margin-top: 12px; box-shadow: none; }
+.head-tail {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.head-tail .doc-line { margin-top: 0; }
+.head-tail > .figure:first-child { margin-top: 0; }
 .foot-block {
   display: flex;
   flex-direction: column;
@@ -496,6 +508,37 @@ a { color: var(--accent-dark); }
   font-size: 12px;
   letter-spacing: 0.04em;
 }
+.tu-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 8px;
+}
+.tu-line .meta-line { margin-top: 0; }
+.tu-prefix { color: var(--ink); font-size: 12px; letter-spacing: 0.04em; }
+.tu-number { min-width: 8em; }
+.tu-line .text-btn { margin-left: 0; font-size: 12px; }
+.tu-add {
+  margin-left: 4px;
+  font-size: 18px;
+  line-height: 1;
+  text-decoration: none;
+}
+.tu-add:hover { text-decoration: none; }
+.doc-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: max-content;
+  max-width: 100%;
+  margin-top: 8px;
+}
+.doc-part { display: flex; align-items: center; gap: 8px; }
+.doc-line .meta-line { margin-top: 0; }
+.doc-value { min-width: 3.2em; }
+.doc-value.is-wide { min-width: 7em; }
 .subtitle { margin: 8px 0 0; font-size: 20px; color: var(--accent); }
 .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .meta span { color: var(--muted); background: transparent; border: 1px solid var(--line); }
@@ -524,7 +567,21 @@ a { color: var(--accent-dark); }
 }
 .card p { margin: 0 0 12px; }
 .card ul { margin: 0 0 12px; padding-left: 18px; }
-.card li { margin: 0 0 6px; }
+.card li { margin: 0; }
+.card > .block,
+.card > .table-block {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+.card .list-editor li {
+  border-bottom: 1px solid var(--line);
+  padding: 6px 0;
+}
+.card .list-editor li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
 .note, .warning {
   border-radius: 10px;
   padding: 10px 12px;
@@ -668,7 +725,7 @@ mark { background: #ffe08a; color: inherit; padding: 0 2px; border-radius: 3px; 
   white-space: pre-line;
 }
 .sheet-sub:empty, .sheet-tu:empty, .sheet-lead:empty, .sheet-docname:empty { display: none; }
-.sheet-tu { margin: 10px 0 0; font-size: 10px; font-weight: 700; }
+.sheet-tu { margin: 3px 0 0; font-size: 10px; font-weight: 700; }
 .sheet-lead {
   margin: 6px 0 0;
   font-size: 9px;
