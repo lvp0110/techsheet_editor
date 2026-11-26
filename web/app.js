@@ -653,21 +653,22 @@ function iconField(doc, section) {
 }
 
 function sectionMoveControl(page, section) {
-  const doc = state.doc;
-  const targets = (doc.pages || []).filter((item) => item !== page);
-  if (!targets.length) return null;
-  const select = h("select", { class: "move-block", title: "Перенести блок на другой лист" });
-  select.append(h("option", { value: "" }, ["На лист…"]));
-  targets.forEach((target) => {
-    const index = doc.pages.indexOf(target);
-    select.append(h("option", { value: String(target.number) }, ["Лист " + (index + 1)]));
+  const pages = (state.doc && state.doc.pages) || [];
+  if (!pages.length) return null;
+  const row = h("div", { class: "move-block" });
+  pages.forEach((target, index) => {
+    const current = target === page;
+    row.append(h("button", {
+      type: "button",
+      class: current ? "is-on" : "",
+      title: current ? "Лист " + (index + 1) : "Перенести на лист " + (index + 1),
+      onclick: () => {
+        if (current) return;
+        moveSection(page, section, target);
+      },
+    }, [String(index + 1)]));
   });
-  select.addEventListener("change", () => {
-    const target = doc.pages.find((item) => String(item.number) === select.value);
-    if (!target) return;
-    moveSection(page, section, target);
-  });
-  return select;
+  return row;
 }
 
 function moveSection(page, section, target) {
@@ -773,13 +774,19 @@ function addBar(list) {
     paint();
     scheduleSave();
   };
+  const used = new Set((list || []).map((block) => block && block.type));
+  const button = (type, label) => h("button", {
+    class: "text-btn" + (used.has(type) ? " is-on" : ""),
+    type: "button",
+    onclick: () => add(type),
+  }, [label]);
   return h("div", { class: "edit-bar" }, [
-    h("button", { class: "text-btn", type: "button", onclick: () => add("paragraph") }, ["Абзац"]),
-    h("button", { class: "text-btn", type: "button", onclick: () => add("list") }, ["Список"]),
-    h("button", { class: "text-btn", type: "button", onclick: () => add("note") }, ["Примечание"]),
-    h("button", { class: "text-btn", type: "button", onclick: () => add("warning") }, ["Важно"]),
-    h("button", { class: "text-btn", type: "button", onclick: () => add("image") }, ["Картинка"]),
-    h("button", { class: "text-btn", type: "button", onclick: () => add("table") }, ["Таблица"]),
+    button("paragraph", "Абзац"),
+    button("list", "Список"),
+    button("note", "Примечание"),
+    button("warning", "Важно"),
+    button("image", "Картинка"),
+    button("table", "Таблица"),
   ]);
 }
 

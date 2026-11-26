@@ -289,16 +289,29 @@ a { color: var(--accent-dark); }
 }
 .icon-field.is-off .card-icon { opacity: 0.35; }
 .move-block {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.move-block button {
   border: 1px solid var(--line);
   background: white;
   color: var(--ink);
   border-radius: 6px;
   font: inherit;
   font-size: 12px;
-  padding: 2px 6px;
-  max-width: 240px;
+  line-height: 1;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+}
+.move-block button.is-on {
+  background: var(--accent-dark);
+  color: white;
+  border-color: var(--accent-dark);
 }
 .edit-bar, .list-editor .text-btn { margin: 0 6px 10px 0; }
+.edit-bar .text-btn.is-on { font-weight: 700; }
 .text-btn {
   border: 0;
   background: transparent;
