@@ -7,7 +7,6 @@ const state = {
   query: "",
   error: "",
   busy: false,
-  filters: {},
   sorts: {},
   focusBlock: null,
   selectedId: null,
@@ -48,7 +47,6 @@ async function showHome() {
 
 async function openDoc(id) {
   state.error = "";
-  state.filters = {};
   state.sorts = {};
   state.query = "";
   try {
@@ -592,7 +590,7 @@ function sectionCard(doc, section, page) {
     }
   });
   const head = h("div", { class: "card-head" });
-  if (section.icon) head.append(h("img", { class: "card-icon", src: media(doc, section.icon), alt: "" }));
+  head.append(iconField(doc, section));
   head.append(title);
   const move = sectionMoveControl(page, section);
   if (move) head.append(move);
@@ -619,6 +617,39 @@ function editableBlock(list, index, page, scope, section) {
     },
   }, ["Удалить"]));
   return wrap;
+}
+
+function sectionIconOn(section) {
+  return section.iconOn !== false;
+}
+
+function iconField(doc, section) {
+  const on = sectionIconOn(section);
+  const field = h("div", { class: "icon-field" + (on ? "" : " is-off") });
+  if (section.icon) field.append(h("img", { class: "card-icon", src: media(doc, section.icon), alt: "" }));
+  else field.append(h("span", { class: "card-icon " + (on ? "card-icon-mark" : "card-icon-empty") }));
+  field.append(h("div", { class: "icon-actions" }, [
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      onclick: () => pickImage((src) => {
+        section.icon = src;
+        section.iconOn = true;
+        paint();
+        scheduleSave();
+      }),
+    }, [section.icon ? "Заменить" : "Добавить"]),
+    h("button", {
+      class: "text-btn",
+      type: "button",
+      onclick: () => {
+        section.iconOn = !on;
+        paint();
+        scheduleSave();
+      },
+    }, [on ? "Выключить" : "Включить"]),
+  ]));
+  return field;
 }
 
 function sectionMoveControl(page, section) {
@@ -787,12 +818,8 @@ function editable(tag, className, get, set, placeholder, block, page, targets, s
 
 function tableBlock(key, table, page, scope, list, index, section) {
   const mark = section ? section.id : null;
-  const kinds = table.headers.map((header, column) => columnKind(header, table.rows, column));
-  const classIndex = kinds.indexOf("class");
-  const filter = state.filters[key] || "";
   const sort = state.sorts[key];
   let rows = table.rows.map((row, index) => ({ row, index }));
-  if (filter) rows = rows.filter((item) => (item.row[classIndex] || "") === filter);
   if (state.query) {
     rows = rows.filter((item) => item.row.join(" ").toLowerCase().includes(state.query.toLowerCase())
       || table.headers.join(" ").toLowerCase().includes(state.query.toLowerCase()));
@@ -803,14 +830,6 @@ function tableBlock(key, table, page, scope, list, index, section) {
   }
 
   const wrap = h("div", { class: "table-block" });
-  const tools = h("div", { class: "tools" });
-  if (classIndex >= 0) {
-    const values = [...new Set(table.rows.map((row) => row[classIndex]).filter(Boolean))];
-    tools.append(chip(key, "", "Все", filter));
-    values.forEach((value) => tools.append(chip(key, value, value, filter)));
-  }
-  tools.append(h("span", { class: "count" }, [`${rows.length} из ${table.rows.length}`]));
-  wrap.append(tools);
 
   const head = h("tr", null, table.headers.map((header, column) => {
     const arrow = sort && sort.index === column ? (sort.dir === "asc" ? " ↑" : " ↓") : "";
@@ -888,17 +907,6 @@ function tableBlock(key, table, page, scope, list, index, section) {
   return wrap;
 }
 
-function chip(key, value, label, current) {
-  return h("button", {
-    type: "button",
-    class: "chip" + (current === value ? " is-on" : ""),
-    onclick: () => {
-      state.filters[key] = value;
-      paint();
-    },
-  }, [label]);
-}
-
 function cellEditor(row, index, page, scope, bind, mark) {
   const bindings = bindSheet(page, row[index], row, scope);
   const node = h("div", { contenteditable: "true", spellcheck: "true" });
@@ -924,23 +932,6 @@ function cellEditor(row, index, page, scope, bind, mark) {
     scheduleSave();
   });
   return node;
-}
-
-function cellView(value, kind) {
-  const text = value || "—";
-  if (kind === "class" && value) {
-    const pill = /классифиц/i.test(value) ? "pill pill-n" : value.includes("C") ? "pill pill-c" : value.includes("D") ? "pill pill-d" : "pill";
-    return h("span", { class: pill }, [marked(text, state.query)]);
-  }
-  if (kind === "index") {
-    const number = parseNum(value);
-    const node = h("div", { class: "index-cell" }, [h("span", null, [marked(text, state.query)])]);
-    if (number != null) {
-      node.append(h("span", { class: "meter" }, [h("span", { style: "width:" + Math.round(number * 100) + "%" })]));
-    }
-    return node;
-  }
-  return h("span", null, [marked(text, state.query)]);
 }
 
 function labelBindings(doc, index) {
@@ -1645,8 +1636,10 @@ function sheetSection(doc, section) {
     "data-section": section.id,
   });
   const title = h("h3");
-  if (section.icon) title.append(h("img", { src: media(doc, section.icon), alt: "" }));
-  else title.append(h("span", { class: "sheet-mark" }));
+  if (sectionIconOn(section)) {
+    if (section.icon) title.append(h("img", { src: media(doc, section.icon), alt: "" }));
+    else title.append(h("span", { class: "sheet-mark" }));
+  }
   title.append(h("span", { "data-bind": "sec-" + section.id }, [section.title || ""]));
   node.append(title);
   (section.blocks || []).forEach((block, index) => node.append(renderSheetBlock(doc, section, block, index)));
@@ -2228,16 +2221,6 @@ function leadMatches(page, query) {
 
 function figureMatches() {
   return !state.query;
-}
-
-function columnKind(header, rows, index) {
-  const values = rows.map((row) => (row[index] || "").trim()).filter(Boolean);
-  if (!values.length) return "text";
-  const classes = values.filter((value) => /^\([A-E]\)$/.test(value) || /классифиц/i.test(value));
-  if (classes.length >= Math.max(2, values.length * 0.5)) return "class";
-  const nums = values.map(parseNum).filter((value) => value != null);
-  if (/индекс/i.test(header) && nums.length >= values.length * 0.5 && Math.max(...nums) <= 1.5) return "index";
-  return "text";
 }
 
 function parseNum(value) {
