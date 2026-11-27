@@ -1951,11 +1951,67 @@ function sheetMain(doc, page, navW) {
   main.style.setProperty("--split", (split * 100) + "%");
   const columns = sheetColumns(page);
   main.append(
-    h("div", { class: "sheet-col left" }, columns.left.map((section) => sheetSection(doc, section))),
+    sheetColumn("sheet-col left", columns.left, doc),
     sheetGutter(page, main, navW),
-    h("div", { class: "sheet-col right" }, columns.right.map((section) => sheetSection(doc, section))),
+    sheetColumn("sheet-col right", columns.right, doc),
   );
   return main;
+}
+
+function sheetColumn(className, sections, doc) {
+  const body = h("div", { class: "sheet-col-body" }, sections.map((section) => sheetSection(doc, section)));
+  const col = h("div", { class: className }, [body]);
+  mountColumnScroll(col, body);
+  return col;
+}
+
+function mountColumnScroll(col, body) {
+  const bar = h("div", { class: "sheet-scroll", "aria-hidden": "true" });
+  const thumb = h("i");
+  bar.append(thumb);
+  col.append(bar);
+  const placeThumb = () => {
+    if (!col.classList.contains("is-over")) return;
+    const overflow = body.scrollHeight - body.clientHeight;
+    const view = bar.clientHeight || body.clientHeight;
+    const thumbH = Math.max(24, Math.round(view * (body.clientHeight / Math.max(body.scrollHeight, 1))));
+    const maxTop = Math.max(view - thumbH, 0);
+    const top = overflow > 0 ? (body.scrollTop / overflow) * maxTop : 0;
+    thumb.style.height = thumbH + "px";
+    thumb.style.transform = "translateY(" + top + "px)";
+  };
+  const sync = () => {
+    if (col.classList.contains("is-over")) col.classList.remove("is-over");
+    const overflow = body.scrollHeight - body.clientHeight;
+    col.classList.toggle("is-over", overflow > 2);
+    placeThumb();
+  };
+  body.addEventListener("scroll", placeThumb, { passive: true });
+  const observer = new ResizeObserver(sync);
+  observer.observe(col);
+  observer.observe(body);
+  body.querySelectorAll(".sheet-sec").forEach((section) => observer.observe(section));
+  sheetObservers.push(observer);
+  requestAnimationFrame(sync);
+  bar.addEventListener("pointerdown", (event) => {
+    const scale = () => {
+      const box = bar.getBoundingClientRect();
+      return box.height / Math.max(bar.offsetHeight, 1);
+    };
+    const place = (clientY, anchor) => {
+      const box = bar.getBoundingClientRect();
+      const local = (clientY - box.top) / scale() - anchor;
+      const maxTop = Math.max(bar.clientHeight - thumb.offsetHeight, 1);
+      const ratio = clamp(local / maxTop, 0, 1);
+      body.scrollTop = ratio * Math.max(body.scrollHeight - body.clientHeight, 0);
+    };
+    const onThumb = event.target === thumb;
+    const anchor = onThumb
+      ? (event.clientY - thumb.getBoundingClientRect().top) / scale()
+      : thumb.offsetHeight / 2;
+    place(event.clientY, anchor);
+    trackPointer(event, (ev) => place(ev.clientY, anchor), () => {});
+  });
 }
 
 function sheetGutter(page, main, navW) {
