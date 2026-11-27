@@ -654,9 +654,11 @@ mark { background: #ffe08a; color: inherit; padding: 0 2px; border-radius: 3px; 
   transform-origin: top left;
 }
 .sheet-nav {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   background: #fff;
   min-height: 0;
 }
@@ -664,25 +666,45 @@ mark { background: #ffe08a; color: inherit; padding: 0 2px; border-radius: 3px; 
 .nav-brand {
   position: relative;
   flex: 0 0 auto;
-  background: #00ade5 center / 100% 100% no-repeat;
+  align-self: flex-end;
+  overflow: hidden;
+  background-color: #00ade5;
+  background-repeat: no-repeat;
+  background-position: bottom center;
+  background-size: 100% auto;
   color: #fff;
+}
+.nav-topic {
+  position: relative;
+  flex: 1 1 auto;
+  align-self: flex-end;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nav-resize:hover .handle,
+.nav-resize.is-on .handle,
+.sheet-nav:hover > .handle-nav-w,
+.sheet-nav.is-on > .handle-nav-w { display: block; z-index: 3; }
+.handle-nav-w {
+  top: 42%;
+  cursor: ew-resize;
+}
+.handle-nav-h {
+  left: 4px;
+  bottom: 10px;
+  cursor: ns-resize;
 }
 .nav-brand .nav-v {
   position: absolute;
   left: 0;
   right: 0;
-  top: 34px;
-  height: 168px;
+  top: 0;
+  height: max(0px, calc(100% - var(--brand-logo, 0px)));
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.04em;
-}
-.nav-topic {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 .nav-topic .nav-v {
   height: 78%;
@@ -705,6 +727,7 @@ mark { background: #ffe08a; color: inherit; padding: 0 2px; border-radius: 3px; 
   line-height: 1;
 }
 .nav-qr {
+  align-self: stretch;
   flex: 0 0 auto;
   display: flex;
   align-items: center;

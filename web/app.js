@@ -1637,26 +1637,156 @@ function sheetBox(doc, page) {
   return box;
 }
 
+function navWidths(doc) {
+  const column = doc.navWidth || 64.8;
+  const side = Math.min(doc.navSideW || column, column);
+  return { column, side: Math.max(28, side) };
+}
+
+function addNavHandles(node, kind) {
+  const height = h("i", { class: "handle handle-nav-h", title: "Высота" });
+  height.addEventListener("pointerdown", (event) => resizeNav(event, node, kind, "height"));
+  node.append(height);
+}
+
+function addNavWidthHandle(nav) {
+  const width = h("i", { class: "handle handle-nav-w", title: "Ширина" });
+  width.addEventListener("pointerdown", (event) => resizeNav(event, nav, "side", "width"));
+  nav.append(width);
+}
+
+function resizeNav(event, node, kind, axis) {
+  const doc = state.doc;
+  const sheet = node.closest(".sheet-page");
+  const pageWidth = sheet.offsetWidth;
+  const pageHeight = sheet.offsetHeight;
+  const scale = pageScale(sheet, { width: pageWidth, height: pageHeight });
+  const nav = node.classList.contains("sheet-nav") ? node : node.parentElement;
+  const brand = nav.querySelector(".nav-brand");
+  const start = {
+    x: event.clientX,
+    y: event.clientY,
+    w: brand.offsetWidth,
+    column: nav.offsetWidth,
+    h: node.offsetHeight,
+    qr: nav.querySelector(".nav-qr").offsetHeight,
+    brand: brand.offsetHeight,
+  };
+  node.classList.add("is-on");
+  trackPointer(event, (ev) => {
+    const dx = (ev.clientX - start.x) * scale.x;
+    const dy = (ev.clientY - start.y) * scale.y;
+    if (axis === "width") {
+      const next = clamp(Math.round(start.w - dx), 28, start.column);
+      doc.navSideW = next;
+      delete doc.navBrandW;
+      delete doc.navTopicW;
+    } else if (kind === "brand") {
+      const next = clamp(Math.round(start.h + dy), 80, pageHeight - start.qr - 80);
+      doc.navBar = next;
+    } else {
+      const nextQr = clamp(Math.round(start.qr - dy), 40, pageHeight - start.brand - 80);
+      doc.navQr = nextQr;
+    }
+    applyNavBox(doc);
+  }, () => {
+    node.classList.remove("is-on");
+    scheduleSave();
+  });
+}
+
+function applyNavBox(doc) {
+  const widths = navWidths(doc);
+  document.querySelectorAll(".sheet-nav").forEach((nav) => {
+    nav.style.width = widths.column + "px";
+    nav.style.flexBasis = widths.column + "px";
+    const brand = nav.querySelector(".nav-brand");
+    const topic = nav.querySelector(".nav-topic");
+    const qr = nav.querySelector(".nav-qr");
+    const handle = nav.querySelector(":scope > .handle-nav-w");
+    if (brand) {
+      brand.style.width = widths.side + "px";
+      if (doc.navBar) {
+        brand.style.height = doc.navBar + "px";
+        brand.style.flexBasis = doc.navBar + "px";
+      }
+      placeBrandText(brand, widths.side, doc);
+    }
+    if (topic) topic.style.width = widths.side + "px";
+    if (handle) handle.style.left = Math.max(0, widths.column - widths.side) + "px";
+    if (qr && doc.navQr) {
+      qr.style.height = doc.navQr + "px";
+      qr.style.flexBasis = doc.navQr + "px";
+    }
+  });
+}
+
+function placeBrandText(node, width, doc) {
+  const ratio = doc._brandLogo;
+  if (ratio) node.style.setProperty("--brand-logo", (width * ratio) + "px");
+  if (!doc.navBrand || doc._brandLogo != null || doc._brandLogoPending) return;
+  doc._brandLogoPending = true;
+  const image = new Image();
+  image.onload = () => {
+    doc._brandLogo = brandLogoRatio(image);
+    delete doc._brandLogoPending;
+    document.querySelectorAll(".nav-brand").forEach((item) => {
+      const itemWidth = parseFloat(item.style.width) || item.offsetWidth;
+      item.style.setProperty("--brand-logo", (itemWidth * doc._brandLogo) + "px");
+    });
+  };
+  image.src = media(doc, doc.navBrand);
+}
+
+function brandLogoRatio(image) {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  context.drawImage(image, 0, 0);
+  const { data, width, height } = context.getImageData(0, 0, canvas.width, canvas.height);
+  let top = height;
+  for (let y = 0; y < height && top === height; y += 1) {
+    for (let x = 0; x < width; x += 2) {
+      const index = (y * width + x) * 4;
+      const red = data[index];
+      const green = data[index + 1];
+      const blue = data[index + 2];
+      if (!(blue > 180 && green > 120 && red < 90)) {
+        top = y;
+        break;
+      }
+    }
+  }
+  return width ? (height - top) / width : 0;
+}
+
 function sheetNav(doc, page, navW, navBar, navQr) {
+  const widths = navWidths(doc);
   const nav = h("aside", { class: "sheet-nav" });
-  nav.style.width = navW + "px";
-  nav.style.flexBasis = navW + "px";
-  const brand = h("div", { class: "nav-brand" });
+  nav.style.width = widths.column + "px";
+  nav.style.flexBasis = widths.column + "px";
+  const brand = h("div", { class: "nav-brand nav-resize" });
+  brand.style.width = widths.side + "px";
   brand.style.height = navBar + "px";
   brand.style.flexBasis = navBar + "px";
   if (doc.navBrand) {
     brand.style.backgroundImage = `url("${media(doc, doc.navBrand)}")`;
   }
+  placeBrandText(brand, widths.side, doc);
   const brandText = h("div", { class: "nav-v" }, [
     h("span", { "data-bind": "label-0" }, [doc.labels[0] || ""]),
   ]);
   applyLabelStyle(brandText, labelStyle(doc, 0));
   brand.append(brandText);
+  addNavHandles(brand, "brand");
   const topicText = h("div", { class: "nav-v" }, [
     h("span", { "data-bind": "label-1" }, [doc.labels[1] || ""]),
   ]);
   applyLabelStyle(topicText, labelStyle(doc, 1));
-  const topic = h("div", { class: "nav-topic" }, [topicText]);
+  const topic = h("div", { class: "nav-topic nav-resize" }, [topicText]);
+  topic.style.width = widths.side + "px";
+  addNavHandles(topic, "topic");
   const qr = (page.figures || []).find(isQr);
   const qrBox = h("div", { class: "nav-qr" });
   qrBox.style.height = navQr + "px";
@@ -1670,6 +1800,9 @@ function sheetNav(doc, page, navW, navBar, navQr) {
     } else qrBox.append(image);
   }
   nav.append(brand, topic, qrBox);
+  addNavWidthHandle(nav);
+  const handle = nav.querySelector(":scope > .handle-nav-w");
+  if (handle) handle.style.left = Math.max(0, widths.column - widths.side) + "px";
   return nav;
 }
 
@@ -2234,7 +2367,7 @@ function resizeBox(start, dx, dy, corner, minW, minH) {
 function trackPointer(event, onMove, onUp) {
   event.preventDefault();
   event.stopPropagation();
-  const handle = event.currentTarget;
+  const handle = event.currentTarget || event.target;
   try { handle.setPointerCapture(event.pointerId); } catch (error) { /* synthetic events have no capture */ }
   const move = (ev) => onMove(ev);
   const up = () => {
