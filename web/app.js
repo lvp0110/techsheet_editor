@@ -585,9 +585,90 @@ function kickerRow(doc, page) {
     field.style.color = fg;
     field.style.fontWeight = source && source.bold ? "700" : "400";
     if (lightColor(bg)) field.style.borderColor = "#c5ced4";
-    row.append(field);
+    const item = h("div", { class: "kicker-item" });
+    item.append(field, kickerStyle(doc, index));
+    row.append(item);
   });
   return row;
+}
+
+function applyLabelStyle(node, style) {
+  node.style.fontSize = style.size + "px";
+  node.style.fontWeight = String(style.weight);
+}
+
+function labelStyle(doc, index) {
+  const saved = doc.labelStyles && doc.labelStyles[index];
+  if (saved && Number(saved.size) > 0 && Number(saved.weight) > 0) {
+    return { size: Number(saved.size), weight: Number(saved.weight) };
+  }
+  if (index === 0) return { size: 15, weight: 700 };
+  if (index === 1) return { size: 20, weight: 400 };
+  return { size: 15, weight: 400 };
+}
+
+function labelBlocks(doc, index) {
+  const blocks = [];
+  (doc.pages || []).forEach((page) => {
+    const verticals = (page.layout || [])
+      .filter((block) => block.type === "text" && block.vertical)
+      .sort((a, b) => a.x - b.x || a.y - b.y);
+    if (verticals[index]) blocks.push(verticals[index]);
+  });
+  return blocks;
+}
+
+function setLabelStyle(doc, index, patch) {
+  const next = Object.assign(labelStyle(doc, index), patch);
+  if (!doc.labelStyles) doc.labelStyles = [];
+  doc.labelStyles[index] = next;
+  labelBlocks(doc, index).forEach((block) => {
+    block.size = next.size;
+    block.bold = next.weight >= 600;
+  });
+  const selector = index === 0 ? ".nav-brand .nav-v" : index === 1 ? ".nav-topic .nav-v" : "";
+  if (selector) {
+    document.querySelectorAll("#pane-sheet " + selector).forEach((node) => {
+      node.style.fontSize = next.size + "px";
+      node.style.fontWeight = String(next.weight);
+    });
+  }
+  scheduleSave();
+}
+
+function kickerStyle(doc, index) {
+  const style = labelStyle(doc, index);
+  const tools = h("div", { class: "kicker-tools" });
+  const size = h("input", {
+    type: "number",
+    min: "8",
+    max: "72",
+    step: "1",
+    value: String(style.size),
+    title: "Размер текста",
+    "aria-label": "Размер текста",
+  });
+  size.addEventListener("input", () => {
+    const value = Number(size.value);
+    if (!Number.isFinite(value) || value < 8 || value > 72) return;
+    setLabelStyle(doc, index, { size: value });
+  });
+  const weights = [300, 400, 500, 600, 700, 800];
+  const weight = h("select", {
+    title: "Жирность",
+    "aria-label": "Жирность",
+  }, weights.map((value) => h("option", {
+    value: String(value),
+    selected: value === style.weight,
+  }, [String(value)])));
+  weight.addEventListener("change", () => {
+    setLabelStyle(doc, index, { weight: Number(weight.value) });
+  });
+  tools.append(
+    h("label", { class: "kicker-ctrl" }, [size, h("span", null, ["px"])]),
+    h("label", { class: "kicker-ctrl" }, [weight]),
+  );
+  return tools;
 }
 
 function labelSource(doc, index) {
@@ -1566,14 +1647,16 @@ function sheetNav(doc, page, navW, navBar, navQr) {
   if (doc.navBrand) {
     brand.style.backgroundImage = `url("${media(doc, doc.navBrand)}")`;
   }
-  brand.append(h("div", { class: "nav-v" }, [
+  const brandText = h("div", { class: "nav-v" }, [
     h("span", { "data-bind": "label-0" }, [doc.labels[0] || ""]),
-  ]));
-  const topic = h("div", { class: "nav-topic" }, [
-    h("div", { class: "nav-v" }, [
-      h("span", { "data-bind": "label-1" }, [doc.labels[1] || ""]),
-    ]),
   ]);
+  applyLabelStyle(brandText, labelStyle(doc, 0));
+  brand.append(brandText);
+  const topicText = h("div", { class: "nav-v" }, [
+    h("span", { "data-bind": "label-1" }, [doc.labels[1] || ""]),
+  ]);
+  applyLabelStyle(topicText, labelStyle(doc, 1));
+  const topic = h("div", { class: "nav-topic" }, [topicText]);
   const qr = (page.figures || []).find(isQr);
   const qrBox = h("div", { class: "nav-qr" });
   qrBox.style.height = navQr + "px";
